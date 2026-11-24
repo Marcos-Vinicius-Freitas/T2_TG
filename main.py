@@ -149,7 +149,7 @@ print(vetorizador.get_feature_names_out()[:20])
 
 # %%
 # TODO: calcule a matriz de similaridade entre TODOS os pares de filmes
-matriz_similaridade = ...
+matriz_similaridade = cosine_similarity(matriz_tfidf)
 
 print("Formato:", matriz_similaridade.shape)   # deve ser (n_filmes, n_filmes)
 
