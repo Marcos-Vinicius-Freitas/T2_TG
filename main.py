@@ -1,182 +1,71 @@
-# %% [markdown]
-# # Trabalho P2 · Teoria dos Grafos
-# ## Sistema de Recomendação de Filmes/Séries com TF-IDF, K-Means e Grafos
-#
-# **Universidade Federal da Grande Dourados (UFGD) · FACET**
-# **Bacharelado em Engenharia de Computação**
-# **Autor do roteiro: Prof. Alexandre Augusto Angelo de Souza
-#
-# ---
-#
-# ### Como usar este roteiro
-#
-# Este notebook é um **esqueleto guiado**. Parte do código já está pronta e parte está marcada para vocês completarem:
-#
-# | Marcação    | Significado                                            |
-# |---          |---                                                     |
-# | `# TODO:`   | instrução do que deve ser feito naquela linha ou bloco |
-# | `...`       | lugar onde vocês devem escrever o código |
-# | `# DICA:`   | pista sobre a função ou o raciocínio esperado |
-# | `# PERGUNTA:` | questão para responder na documentação do trabalho |
-#
-# Executem as células **na ordem**. Ao final de cada passo existe uma pequena verificação para conferir se está tudo certo antes de seguir.
-#
-# **Entrega (Google Classroom):** código Python, prints da execução e dos resultados, e a documentação respondendo às perguntas marcadas.
+# Teoria dos Grafos - Trabalho 2
+# Higor Vinicius e Marcos Vinicius
 
-# %% [markdown]
-# ## Passo 1 · Importação das bibliotecas
-#
-# Precisamos de bibliotecas para: manipular dados (tabelas), criar e analisar grafos, desenhar gráficos, fazer contas com vetores e aplicar aprendizado de máquina sobre texto.
+# Passo 1 · Importação das bibliotecas
 
-# %%
-# Se estiver no Google Colab, monte o Drive para acessar o arquivo CSV
-# from google.colab import drive
-# drive.mount('/content/drive')
+import pandas as pd
+import numpy as np
+import networkx as nx
+import matplotlib.pyplot as plt
+from collections import Counter
 
-# %%
-import pandas as pd                 # manipulação de dados (DataFrame)
-import numpy as np                  # cálculos numéricos
-import networkx as nx               # criação e análise de grafos
-import matplotlib.pyplot as plt     # visualização
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.cluster import MiniBatchKMeans
 
-# TODO: importe do scikit-learn as três ferramentas abaixo
-# DICA: estão nos módulos sklearn.feature_extraction.text, sklearn.metrics.pairwise e sklearn.cluster
-from sklearn.feature_extraction.text import TfidfVectorizer   # vetorizador TF-IDF
-from sklearn.metrics.pairwise import cosine_similarity          # similaridade por cosseno
-from sklearn.cluster import MiniBatchKMeans                   # versão "em lotes" do K-Means
+# Passo 2 · Leitura e pré-processamento do dataset
 
-# %% [markdown]
-# ## Passo 2 · Leitura e pré-processamento do dataset
-#
-# O arquivo `disney_plus_titles.csv` possui colunas como `title`, `director`, `cast`, `country`, `listed_in` e `description`.
-#
-# Problema: as colunas `cast`, `director`, `country` e `listed_in` guardam **vários valores em um único texto**, separados por vírgula (ex.: `"Mark Hamill, Harrison Ford, Carrie Fisher"`). Para o grafo, precisamos que cada ator, diretor, país e categoria seja um **item separado** de uma lista.
+caminho = "./disney_plus_titles.csv"
 
-# %%
-# TODO: ajuste o caminho para onde VOCÊ salvou o arquivo no Drive
-caminho = "disney_plus_titles.csv"
+dados = pd.read_csv(caminho)
 
-# TODO: leia o CSV com o pandas
-dados = ...
+print(dados.head())
 
-display(dados.head())
-
-# %%
-# --- Análise exploratória rápida ---
-# TODO: mostre os nomes das colunas
-print("Colunas:", ...)
-
-# TODO: mostre quantas linhas e colunas existem
-print("Formato:", ...)
-
-# TODO: conte quantas descrições estão faltando (valores nulos)
-# DICA: .isna().sum()
-print("Descrições faltando:", ...)
-
-# Exemplo de uma descrição
-print("Exemplo:", dados['description'].iloc[0])
-
-# %%
 def preprocessar_lista(texto):
-    """Converte 'A, B, C' em ['A', 'B', 'C']. Valores nulos viram lista vazia."""
-    # TODO: se o valor for nulo, retorne uma lista vazia
-    # DICA: pd.isna(texto)
-    if ...:
-        return ...
+    if pd.isna(texto):
+        return []
 
-    # TODO: separe o texto pela vírgula e remova os espaços extras de cada item
-    # DICA: str(texto).split(',') e item.strip() dentro de uma list comprehension
-    return [...]
+    return [item.strip() for item in str(texto).split(',') if item.strip()]
 
 
-# Teste rápido da função (deve imprimir ['Mark Hamill', 'Harrison Ford'] e [])
-print(preprocessar_lista("Mark Hamill,  Harrison Ford"))
-print(preprocessar_lista(np.nan))
-
-# %%
-# TODO: aplique a função nas colunas com múltiplos valores
-# DICA: dados['coluna'] = dados['coluna'].apply(preprocessar_lista)
 for coluna in ['cast', 'director', 'listed_in', 'country']:
-    ...
+    dados[coluna] = dados[coluna].apply(preprocessar_lista)
 
-# TODO: preencha descrições vazias com string vazia (o TF-IDF não aceita NaN)
-dados['description'] = ...
+dados['description'] = dados['description'].fillna('')
 
-# Verificação
-dados[['title', 'cast', 'director', 'listed_in', 'country']].head(3)
 
-# %% [markdown]
-# ## Passo 3 · Transformação do texto em vetores TF-IDF
-#
-# Algoritmos de aprendizado de máquina trabalham com números, não com texto. O **TF-IDF** transforma cada descrição em um vetor onde cada posição corresponde a uma palavra do vocabulário e o valor indica o quanto aquela palavra é importante **naquele filme** em relação ao **catálogo inteiro**.
-#
-# $$\text{TF-IDF}(t,d) = \text{TF}(t,d) \times \log\frac{N}{\text{DF}(t)}$$
-#
-# Lembrem: as descrições estão **em inglês**, então as *stop words* devem ser do inglês.
+# Passo 3 · Transformação do texto em vetores TF-IDF
 
-# %%
-# TODO: crie o vetorizador TF-IDF configurando os parâmetros indicados
 vetorizador = TfidfVectorizer(
-    stop_words= 'english',             # remover palavras muito comuns do idioma das descrições
-    max_features= 2000,           # limitar o vocabulário (sugestão: 2000 palavras)
-    token_pattern=r'[A-Za-z]{2,}',  # só palavras com letras e pelo menos 2 caracteres
-    min_df= 2,                 # ignorar palavras que aparecem em menos de 2 filmes
-    max_df= 0.8,                 # ignorar palavras presentes em mais de 80% dos filmes
+    stop_words='english',
+    max_features=2000,
+    token_pattern=r'[A-Za-z]{2,}',
+    min_df=2,
+    max_df=0.8,
 )
 
-# TODO: ajuste o vetorizador e transforme a coluna 'description'
-# DICA: método fit_transform
 matriz_tfidf = vetorizador.fit_transform(dados['description'])
 
-print("Formato da matriz TF-IDF:", matriz_tfidf.shape)
-print("   • Número de filmes:", matriz_tfidf.shape[0])
-print("   • Tamanho do vocabulário:", matriz_tfidf.shape[1])
-
-# TODO: mostre as 20 primeiras palavras do vocabulário
-# DICA: vetorizador.get_feature_names_out()
-print(vetorizador.get_feature_names_out()[:20])
-
-# PERGUNTA: por que a matriz é "esparsa"? O que significam a maioria dos valores serem zero?
-
-# %% [markdown]
-# ### 3.1 · Similaridade por cosseno
-#
-# Com cada filme representado por um vetor, medimos o quanto dois filmes se parecem pelo **cosseno do ângulo** entre seus vetores:
-#
-# $$\text{sim}(A,B) = \frac{A \cdot B}{\|A\|\,\|B\|}$$
-#
-# Valor 1 significa descrições "idênticas" em termos de palavras, valor 0 significa nenhuma palavra relevante em comum.
-
-# %%
-# TODO: calcule a matriz de similaridade entre TODOS os pares de filmes
 matriz_similaridade = cosine_similarity(matriz_tfidf)
 
-print("Formato:", matriz_similaridade.shape)   # deve ser (n_filmes, n_filmes)
+print("Formato:", matriz_similaridade.shape)
 
-# --- Encontrar o par de filmes DIFERENTES mais parecido ---
 matriz_temp = matriz_similaridade.copy()
 
-# TODO: a diagonal principal vale 1 (cada filme com ele mesmo). Substitua-a por -1
-# DICA: np.fill_diagonal
-...
+np.fill_diagonal(matriz_temp, -1)
 
-# TODO: encontre o maior valor e a posição (i, j) onde ele ocorre
-# DICA: .max(), .argmax() e np.unravel_index
-maior_similaridade = ...
-i, j = ...
+maior_similaridade = matriz_temp.max()
+i, j = np.unravel_index(matriz_temp.argmax(), matriz_temp.shape)
 
 print(f"Maior similaridade entre filmes diferentes: {maior_similaridade:.3f}")
 print(f"  • {dados.iloc[i]['title']}  ×  {dados.iloc[j]['title']}")
 
-# PERGUNTA: se o valor encontrado for 1.0, o que isso indica sobre as descrições desses títulos?
-# Confiram no dataset e comentem na documentação.
+print("  • Descrição 1:", dados.iloc[i]['description'])
+print("  • Descrição 2:", dados.iloc[j]['description'])
 
-# %%
+
 def testar_filme_especifico(nome_filme, k=5):
-    """Mostra os k filmes com maior similaridade de cosseno (somente texto, sem grafo)."""
-    # TODO: localize o filme pelo título (busca parcial e sem diferenciar maiúsculas)
-    # DICA: dados['title'].str.contains(nome_filme, case=False, na=False)
-    mask = ...
+    mask = dados['title'].str.contains(nome_filme, case=False, na=False, regex=False)
     if not mask.any():
         print(f"Filme '{nome_filme}' não encontrado")
         return
@@ -185,163 +74,121 @@ def testar_filme_especifico(nome_filme, k=5):
     print(f"\n# TESTANDO: {dados.loc[indice, 'title']}")
     print(f"- Descrição: {dados.loc[indice, 'description']}")
 
-    # TODO: pegue a linha da matriz de similaridade correspondente ao filme
-    similaridades = ...
+    similaridades = matriz_similaridade[indice]
 
-    # TODO: monte uma lista de tuplas (indice, similaridade, titulo)
-    #       excluindo o próprio filme e similaridades iguais a zero
     filmes_similares = []
-    ...
+    for idx, sim in enumerate(similaridades):
+        if idx != indice and sim > 0:
+            filmes_similares.append((idx, sim, dados.loc[idx, 'title']))
 
-    # TODO: ordene da maior para a menor similaridade
-    ...
+    filmes_similares.sort(key=lambda t: t[1], reverse=True)
 
     print("\nFILMES SIMILARES (cosseno):")
     for pos, (idx, sim, tit) in enumerate(filmes_similares[:k], 1):
         print(f"   {pos}. {tit} → {sim:.3f}")
 
 
-testar_filme_especifico("Star Wars")
+filme_escolhido = input("Filme a ser buscado: ")
+testar_filme_especifico(filme_escolhido)
 
-# %% [markdown]
-# ## Passo 4 · Agrupamento com MiniBatchKMeans
-#
-# O K-Means separa os filmes em *k* grupos (clusters) de descrições parecidas. O **MiniBatchKMeans** faz o mesmo processando pequenos lotes por vez, sendo bem mais rápido em bases grandes. Sugestão do enunciado: **100 clusters**.
+# Passo 4 · Agrupamento com MiniBatchKMeans
 
-# %%
-# TODO: crie o modelo com 100 clusters e random_state=42 (para resultados reproduzíveis)
-kmeans = ...
+kmeans = MiniBatchKMeans(n_clusters=100, random_state=42)
 
-# TODO: treine o modelo e obtenha o cluster de cada filme em um único comando
-# DICA: fit_predict sobre a matriz TF-IDF
-clusters = ...
+clusters = kmeans.fit_predict(matriz_tfidf)
 
-# TODO: salve o resultado em uma nova coluna 'cluster' do DataFrame
-...
+dados['cluster'] = clusters
 
-# Verificação: quantos filmes há em cada cluster (10 maiores)
 print(dados['cluster'].value_counts().head(10))
 
-# %%
-# Explorando um cluster: quais títulos ficaram juntos?
-# TODO: escolha o número de um cluster e mostre os títulos que pertencem a ele
-numero_cluster = ...
+mask_sw = dados['title'].str.contains(filme_escolhido, case=False, na=False, regex=False)
+if mask_sw.any():
+    numero_cluster = int(dados.loc[mask_sw, 'cluster'].iloc[0])
+else:
+    numero_cluster = int(dados['cluster'].value_counts().index[0])
+
+print(f"Cluster {numero_cluster}:")
 print(dados.loc[dados['cluster'] == numero_cluster, 'title'].head(15).tolist())
 
-# PERGUNTA: os títulos desse cluster fazem sentido juntos? Que tema eles compartilham?
+# Passo 5 · Construção do grafo com NetworkX
 
-# %% [markdown]
-# ## Passo 5 · Construção do grafo com NetworkX
-#
-# Vamos montar um **grafo não direcionado e heterogêneo**, isto é, com vértices de tipos diferentes:
-#
-# | Tipo de vértice | Identificador sugerido | Atributos |
-# |---|---|---|
-# | filme | `filme_<indice>` | `tipo`, `titulo`, `cluster` |
-# | ator | `ator_<nome>` | `tipo`, `nome` |
-# | diretor | `diretor_<nome>` | `tipo`, `nome` |
-# | país | `pais_<nome>` | `tipo`, `nome` |
-# | categoria | `categoria_<nome>` | `tipo`, `nome` |
-#
-# | Aresta | Entre | Atributo |
-# |---|---|---|
-# | similaridade | filme ↔ filme (se cosseno > limiar) | `peso` = similaridade |
-# | elenco | filme ↔ ator | `tipo="elenco"` |
-# | direção | filme ↔ diretor | `tipo="direcao"` |
-# | origem | filme ↔ país | `tipo="origem"` |
-# | gênero | filme ↔ categoria | `tipo="genero"` |
-#
-# **Importante:** o mesmo ator que aparece em dois filmes deve ser **um único vértice**. É isso que cria os caminhos entre filmes no grafo.
-
-# %%
-similaridade_minima = 0.15   # limiar para ligar dois filmes por similaridade de texto
+similaridade_minima = 0.15
 
 def criar_grafo(dados, matriz_similaridade):
     print("Montando o grafo...")
 
-    # TODO: crie um grafo NÃO direcionado vazio
-    G = ...
+    G = nx.Graph()
 
-    # ---- 5.1 Vértices de filmes ----
     for idx, filme in dados.iterrows():
-        # TODO: adicione o vértice f"filme_{idx}" com os atributos tipo, titulo e cluster
-        G.add_node(...)
+        G.add_node(f"filme_{idx}", tipo="filme", titulo=filme['title'],
+                   cluster=int(filme['cluster']))
 
-    # ---- 5.2 Arestas filme ↔ filme por similaridade ----
     n = len(dados)
     for i in range(n):
-        # TODO: percorra apenas j > i para não repetir pares nem ligar o filme a ele mesmo
-        for j in range(...):
-            # TODO: se a similaridade entre i e j for maior que o limiar, crie a aresta
-            #       guardando tipo="similaridade" e peso=<valor da similaridade>
-            ...
+        for j in range(i + 1, n):
+            if matriz_similaridade[i, j] > similaridade_minima:
+                G.add_edge(f"filme_{i}", f"filme_{j}",
+                           tipo="similaridade",
+                           peso=float(matriz_similaridade[i, j]))
 
-    # ---- 5.3 Atores ----
     for idx, filme in dados.iterrows():
         for ator in filme['cast']:
             if ator:
                 ator_id = f"ator_{ator}"
-                # TODO: adicione o vértice do ator (tipo="ator", nome=ator)
-                ...
-                # TODO: ligue o filme ao ator (tipo="elenco")
-                ...
+                G.add_node(ator_id, tipo="ator", nome=ator)
+                G.add_edge(f"filme_{idx}", ator_id, tipo="elenco")
 
-    # ---- 5.4 Diretores ----
-    # TODO: repita a lógica dos atores usando a coluna 'director'
-    #       prefixo "diretor_", tipo="diretor", aresta tipo="direcao"
-    ...
+    for idx, filme in dados.iterrows():
+        for diretor in filme['director']:
+            if diretor:
+                diretor_id = f"diretor_{diretor}"
+                G.add_node(diretor_id, tipo="diretor", nome=diretor)
+                G.add_edge(f"filme_{idx}", diretor_id, tipo="direcao")
 
-    # ---- 5.5 Países ----
-    # TODO: repita usando a coluna 'country' (prefixo "pais_", aresta tipo="origem")
-    ...
+    for idx, filme in dados.iterrows():
+        for pais in filme['country']:
+            if pais:
+                pais_id = f"pais_{pais}"
+                G.add_node(pais_id, tipo="pais", nome=pais)
+                G.add_edge(f"filme_{idx}", pais_id, tipo="origem")
 
-    # ---- 5.6 Categorias ----
-    # TODO: repita usando a coluna 'listed_in' (prefixo "categoria_", aresta tipo="genero")
-    ...
+    for idx, filme in dados.iterrows():
+        for categoria in filme['listed_in']:
+            if categoria:
+                categoria_id = f"categoria_{categoria}"
+                G.add_node(categoria_id, tipo="categoria", nome=categoria)
+                G.add_edge(f"filme_{idx}", categoria_id, tipo="genero")
 
     print("\nESTATÍSTICAS DO GRAFO")
-    # TODO: imprima o total de vértices e de arestas
-    # DICA: G.number_of_nodes() e G.number_of_edges()
-    print("   • Vértices:", ...)
-    print("   • Arestas:", ...)
+    print("   • Vértices:", G.number_of_nodes())
+    print("   • Arestas:", G.number_of_edges())
     return G
-
 
 grafo = criar_grafo(dados, matriz_similaridade)
 
-# %%
-# --- Análise estrutural do grafo (use nos resultados da documentação) ---
-from collections import Counter
+print("Vértices por tipo:", Counter(nx.get_node_attributes(grafo, 'tipo').values()))
 
-# TODO: conte quantos vértices existem de cada tipo
-# DICA: Counter(nx.get_node_attributes(grafo, 'tipo').values())
-print("Vértices por tipo:", ...)
+tipos = nx.get_node_attributes(grafo, 'tipo')
+atores_grau = [(no, grau) for no, grau in grafo.degree() if tipos[no] == 'ator']
+atores_grau.sort(key=lambda t: t[1], reverse=True)
 
-# TODO: liste os 10 atores com MAIOR GRAU (mais filmes no catálogo)
-# DICA: percorra grafo.degree() filtrando os vértices de tipo 'ator'
-...
+print("\nTop 10 atores com maior grau:")
+for pos, (no, grau) in enumerate(atores_grau[:10], 1):
+    print(f"   {pos}. {grafo.nodes[no]['nome']} → {grau} filmes")
 
-# PERGUNTA: o grafo é conexo? Quantas componentes conexas ele possui?
-# DICA: nx.is_connected / nx.number_connected_components
+print("\nO grafo é conexo?", nx.is_connected(grafo))
+print("Número de componentes conexas:", nx.number_connected_components(grafo))
 
-# %% [markdown]
-# ## Passo 6 · Desenho e visualização do subgrafo
-#
-# O grafo completo tem milhares de vértices e é impossível de visualizar. Vamos desenhar apenas um **subgrafo** com:
-#
-# 1. o filme escolhido e seus vizinhos (atores, diretores, países, categorias);
-# 2. os 5 filmes mais similares a ele (arestas de similaridade) e os vizinhos desses filmes.
+# Passo 6 · Desenho e visualização do subgrafo
 
-# %%
 CORES = {'filme': '#9ecae1', 'ator': '#c994c7', 'diretor': 'orange',
          'categoria': 'lightgreen', 'pais': 'yellow'}
 
 def encontrar_no_filme(grafo, titulo):
-    """Retorna o identificador do vértice cujo atributo 'titulo' é igual ao informado."""
-    # TODO: percorra grafo.nodes(data=True) e devolva o nó do tipo 'filme' com esse título
-    ...
+    for no, atributos in grafo.nodes(data=True):
+        if atributos.get('tipo') == 'filme' and atributos.get('titulo') == titulo:
+            return no
     return None
-
 
 def visualizar_grafo(grafo, titulo_filme, k=5):
     filme_node = encontrar_no_filme(grafo, titulo_filme)
@@ -349,32 +196,38 @@ def visualizar_grafo(grafo, titulo_filme, k=5):
         print(f"Filme '{titulo_filme}' não encontrado.")
         return
 
-    # TODO: entre os vizinhos do filme, selecione os que são do tipo 'filme'
-    #       e guarde (vizinho, peso, titulo). O peso está em grafo[filme_node][vizinho]['peso']
     filmes_similares = []
-    ...
+    for vizinho in grafo.neighbors(filme_node):
+        if grafo.nodes[vizinho]['tipo'] == 'filme':
+            peso = grafo[filme_node][vizinho]['peso']
+            filmes_similares.append((vizinho, peso, grafo.nodes[vizinho]['titulo']))
 
-    # TODO: ordene por peso decrescente e pegue os k primeiros
-    top_k = ...
+    top_k = sorted(filmes_similares, key=lambda t: t[1], reverse=True)[:k]
 
-    # TODO: monte a lista de vértices do subgrafo:
-    #       o filme principal + seus vizinhos não-filme
-    #       + cada filme do top_k + os vizinhos não-filme de cada um deles
     nos = {filme_node}
-    ...
+    for vizinho in grafo.neighbors(filme_node):
+        if grafo.nodes[vizinho]['tipo'] != 'filme':
+            nos.add(vizinho)
+    for vizinho, _, _ in top_k:
+        nos.add(vizinho)
+        for v2 in grafo.neighbors(vizinho):
+            if grafo.nodes[v2]['tipo'] != 'filme':
+                nos.add(v2)
 
-    # TODO: crie o subgrafo induzido por esses vértices
-    sub = ...
+    sub = grafo.subgraph(nos)
 
-    # ---- desenho ----
     plt.figure(figsize=(14, 10))
     pos = nx.spring_layout(sub, k=1, iterations=50, seed=42)
 
     cores = [CORES.get(sub.nodes[n]['tipo'], 'gray') for n in sub.nodes()]
 
-    # TODO: monte o dicionário de rótulos: título (abreviado) para filmes e nome para os demais
     rotulos = {}
-    ...
+    for n in sub.nodes():
+        if sub.nodes[n]['tipo'] == 'filme':
+            titulo = sub.nodes[n]['titulo']
+            rotulos[n] = titulo if len(titulo) <= 20 else titulo[:18] + "..."
+        else:
+            rotulos[n] = sub.nodes[n]['nome']
 
     nx.draw_networkx_nodes(sub, pos, node_color=cores, node_size=400, edgecolors='black')
     nx.draw_networkx_edges(sub, pos, alpha=0.5, edge_color='gray')
@@ -384,64 +237,57 @@ def visualizar_grafo(grafo, titulo_filme, k=5):
     plt.tight_layout()
     plt.show()
 
+titulo_teste = dados.loc[dados['title'].str.contains(filme_escolhido, case=False, na=False, regex=False)]
+titulo_teste = titulo_teste['title'].iloc[0] if len(titulo_teste) else dados['title'].iloc[0]
+visualizar_grafo(grafo, titulo_teste)
 
-# TODO: teste com um título exato do catálogo
-visualizar_grafo(grafo, "...")
+# Passo 7 · Recomendação com a métrica de Adamic-Adar
 
-# %% [markdown]
-# ## Passo 7 · Recomendação com a métrica de Adamic-Adar
-#
-# Até aqui, a similaridade usou **apenas o texto**. Agora vamos usar a **estrutura do grafo**: dois filmes são parecidos se compartilham muitos vizinhos (atores, diretores, categorias, países, filmes similares).
-#
-# A métrica de **Adamic-Adar** soma os vizinhos em comum, mas dá **mais peso aos vizinhos raros**:
-#
-# $$AA(x,y) = \sum_{z \,\in\, N(x) \cap N(y)} \frac{1}{\log |N(z)|}$$
-#
-# **Intuição:** compartilhar a categoria *"Family"* (ligada a centenas de filmes) diz pouco. Compartilhar um diretor que fez só 3 filmes diz muito. O $\log$ do grau penaliza vizinhos muito populares.
-#
-# O NetworkX já implementa a métrica: `nx.adamic_adar_index(G, pares)` recebe uma lista de pares `(u, v)` e devolve tuplas `(u, v, pontuacao)`.
-#
-# **Atenção:** um vizinho comum com grau 1 gera $\log 1 = 0$ (divisão por zero). Isso não ocorre aqui, pois um vizinho comum a dois filmes tem grau ≥ 2.
-
-# %%
 def recomendar_adamic_adar(grafo, titulo_filme, k=5):
-    """Retorna os k filmes com maior índice de Adamic-Adar em relação ao filme informado."""
     filme_node = encontrar_no_filme(grafo, titulo_filme)
     if filme_node is None:
         print(f"Filme '{titulo_filme}' não encontrado.")
         return []
 
-    # TODO: crie a lista de candidatos, isto é, todos os vértices do tipo 'filme'
-    #       diferentes do filme de entrada
-    candidatos = ...
+    candidatos = [no for no, atributos in grafo.nodes(data=True)
+                  if atributos['tipo'] == 'filme' and no != filme_node]
 
-    # TODO: monte os pares (filme_node, candidato)
-    pares = ...
+    pares = [(filme_node, c) for c in candidatos]
 
-    # TODO: calcule o índice de Adamic-Adar para todos os pares
-    # DICA: nx.adamic_adar_index(grafo, pares)
-    pontuacoes = ...
+    pontuacoes = nx.adamic_adar_index(grafo, pares)
 
-    # TODO: transforme o resultado em uma lista (titulo, pontuacao),
-    #       descarte pontuação zero e ordene em ordem decrescente
-    resultado = ...
+    resultado = [(grafo.nodes[v]['titulo'], pontuacao)
+                 for _, v, pontuacao in pontuacoes if pontuacao > 0]
+    resultado.sort(key=lambda t: t[1], reverse=True)
 
     return resultado[:k]
 
 
-# DESAFIO (opcional, vale como diferencial):
-# Implementem a métrica "na mão" usando nx.common_neighbors e grafo.degree,
-# e comparem com o resultado do NetworkX para verificar se são iguais.
+def adamic_adar_manual(grafo, u, v):
+    return sum(1 / np.log(grafo.degree(z)) for z in nx.common_neighbors(grafo, u, v))
 
-# %% [markdown]
-# ## Passo 8 · Sistema de recomendação final
-#
-# Ao receber o nome de um filme ou série, o sistema deve indicar os **5 títulos com maiores índices de similaridade**. Apresentem lado a lado os dois critérios estudados para poder compará-los na documentação.
+def comparar_adamic_adar(grafo, titulo_filme, k=5):
+    filme_node = encontrar_no_filme(grafo, titulo_filme)
+    candidatos = [no for no, a in grafo.nodes(data=True)
+                  if a['tipo'] == 'filme' and no != filme_node]
 
-# %%
+    manual = sorted(((grafo.nodes[c]['titulo'], adamic_adar_manual(grafo, filme_node, c))
+                     for c in candidatos), key=lambda t: t[1], reverse=True)
+    manual = [(t, s) for t, s in manual if s > 0][:k]
+
+    nativo = recomendar_adamic_adar(grafo, titulo_filme, k)
+
+    iguais = all(abs(a[1] - b[1]) < 1e-9 for a, b in zip(manual, nativo)) and len(manual) == len(nativo)
+    print("Versão manual igual à do NetworkX?", iguais)
+    return manual, nativo
+
+comparar_adamic_adar(grafo, titulo_teste)
+
+# Passo 8 · Recomendação
+
 def recomendar(nome_digitado, k=5):
-    # TODO: encontre títulos que CONTENHAM o texto digitado (sem diferenciar maiúsculas)
-    encontrados = ...
+    mask = dados['title'].str.contains(nome_digitado, case=False, na=False, regex=False)
+    encontrados = dados.loc[mask, 'title'].tolist()
     if not encontrados:
         print(f"Nenhum título encontrado para '{nome_digitado}'.")
         return
@@ -451,20 +297,19 @@ def recomendar(nome_digitado, k=5):
         print(f"{len(encontrados)} títulos encontrados. Usando: {titulo}")
         print("Outras opções:", encontrados[1:4])
 
-    # --- Critério 1: similaridade de cosseno (texto) ---
     print("\n[1] Similaridade de cosseno (descrição):")
-    # TODO: reaproveite a lógica do Passo 3 para listar os k mais similares
-    ...
+    indice = dados.index[dados['title'] == titulo][0]
+    similares = [(idx, sim, dados.loc[idx, 'title'])
+                 for idx, sim in enumerate(matriz_similaridade[indice])
+                 if idx != indice and sim > 0]
+    similares.sort(key=lambda t: t[1], reverse=True)
+    for pos, (idx, sim, tit) in enumerate(similares[:k], 1):
+        print(f"   {pos}. {tit} → {sim:.3f}")
 
-    # --- Critério 2: Adamic-Adar (estrutura do grafo) ---
     print("\n[2] Adamic-Adar (grafo):")
-    # TODO: chame recomendar_adamic_adar e imprima o ranking com a pontuação
-    ...
+    for pos, (tit, pontuacao) in enumerate(recomendar_adamic_adar(grafo, titulo, k), 1):
+        print(f"   {pos}. {tit} → {pontuacao:.3f}")
 
-    # --- Visualização ---
-    # TODO: chame visualizar_grafo para o título escolhido
-    ...
+    visualizar_grafo(grafo, titulo)
 
-
-nome = input("Digite o nome do filme/série: ").strip()
-recomendar(nome)
+recomendar(filme_escolhido.strip())
